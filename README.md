@@ -1,92 +1,208 @@
 # TLS Cert Renewal Automation
 
-One command to renew a Let's Encrypt wildcard certificate and deploy it to a cPanel server via the cPanel UAPI.
+One command to issue or renew a Let's Encrypt wildcard certificate, deploy it to a cPanel server through cPanel UAPI, and verify both public edge TLS and origin-side SSL inventory.
 
-**Stack:** certbot + Cloudflare DNS plugin + SSH + cPanel UAPI
+Stack: Certbot + Cloudflare DNS-01 + SSH + cPanel UAPI + OpenSSL
+
+---
+
+## What this does
+
+This project automates the full TLS renewal workflow for a cPanel-hosted site using Cloudflare-managed DNS.
+
+It handles:
+
+- Requesting or renewing a Let's Encrypt certificate with Certbot
+- Completing DNS-01 validation through Cloudflare
+- Supporting wildcard certificates
+- Installing the certificate into cPanel through UAPI
+- Verifying public TLS status with OpenSSL
+- Showing cPanel origin SSL inventory through UAPI
+- Separating Cloudflare edge certificate status from cPanel origin certificate status
+
+This matters because when using Cloudflare proxy:
+
+- Visitors see Cloudflare’s edge certificate
+- Cloudflare connects to your server using your origin certificate
+
+This script verifies both.
+
+---
+
+## Architecture
+
+Browser
+  ↓
+Cloudflare edge TLS certificate
+  ↓
+Cloudflare proxy
+  ↓
+cPanel origin TLS certificate
+  ↓
+Website
 
 ---
 
 ## Prerequisites
 
-- [certbot](https://certbot.eff.org) installed locally (`brew install certbot`)
-- [certbot-dns-cloudflare](https://certbot-dns-cloudflare.readthedocs.io) plugin (`pip install certbot-dns-cloudflare`)
-- Cloudflare managing DNS for your domain(s)
-- SSH access to your cPanel server configured in `~/.ssh/config`
+Install locally:
+
+- certbot
+- certbot-dns-cloudflare
+- curl
+- openssl
+- python3
+- ssh
+
+macOS example:
+
+brew install certbot
+pip install certbot-dns-cloudflare
+
+You also need:
+
+- Cloudflare managing DNS for your domains
+- Cloudflare API token with DNS edit permissions
+- SSH access to your cPanel server
+- uapi available on the server
+
+---
+
+## Cloudflare API token
+
+Create a token using the “Edit zone DNS” template.
+
+Permissions:
+
+Zone → DNS → Edit
+Zone → Zone → Read
+
+Scope it only to your domains.
 
 ---
 
 ## Setup
 
-**1. Clone / copy this repo into a permanent location on your machine.**
-
-**2. Create your config files:**
-
-```bash
 cp config.env.example config.env
-cp cloudflare.ini.example cloudflare.ini
-```
-
-**3. Fill in `config.env`** — set your email, cert name, domains, SSH host, and cPanel domains. See the file for field descriptions.
-
-**4. Fill in `cloudflare.ini`** — paste your Cloudflare API token:
-
-```ini
-dns_cloudflare_api_token = YOUR_TOKEN_HERE
-```
-
-Create the token at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) using the **Edit zone DNS** template, scoped to your domain(s).
-
-**5. Make the script executable:**
-
-```bash
 chmod +x renew.sh
-```
+
+Edit config.env:
+
+CERTBOT_EMAIL="you@example.com"
+CERT_NAME="jseverino-origin"
+
+CERTBOT_DOMAINS="jseverino.com *.jseverino.com jseverino.net *.jseverino.net"
+
+CLOUDFLARE_API_TOKEN="your_token_here"
+
+SSH_HOST="my-cpanel"
+
+CPANEL_DOMAINS="jseverino.net test.jseverino.net quiz.jseverino.net"
+
+VERIFY_DOMAINS="jseverino.com jseverino.net joeseverino.com"
+
+---
+
+## Config notes
+
+- Wildcards do NOT cover apex domains
+- *.jseverino.com does not include jseverino.com
+- VERIFY_DOMAINS checks public TLS, not origin TLS
+- Cloudflare credentials are generated at runtime
 
 ---
 
 ## Usage
 
-```bash
-./renew.sh check      # verify config, token, SSH, and cPanel — no changes
-sudo ./renew.sh dry-run  # full certbot test against staging — no real cert
-sudo ./renew.sh run      # renew and deploy  (default)
-./renew.sh verify     # confirm the live cert on each domain
-```
-
-### Recommended first-run sequence
-
-```bash
 ./renew.sh check
 sudo ./renew.sh dry-run
+./renew.sh ssl-status
 sudo ./renew.sh run
 ./renew.sh verify
-```
-
-After setup, renewal is just:
-
-```bash
-tls run       # if you've added the shell function (see below)
-tls verify
-```
 
 ---
 
-## How it works
+## Commands
 
-1. **Renew** — certbot requests a certificate from Let's Encrypt using the DNS-01 challenge. The Cloudflare plugin automatically creates the required `_acme-challenge` TXT record and removes it after validation. Wildcards are supported.
+check
+Validates config, dependencies, Cloudflare token, SSH, and cPanel UAPI
 
-2. **Deploy** — for each domain in `CPANEL_DOMAINS`, the script connects over SSH and calls `uapi SSL install_ssl` with the cert, private key, and CA bundle. cPanel writes the cert into its own store and reconfigures Apache — no manual file placement or service restarts needed.
+dry-run
+Runs full staging validation (no real cert issued)
 
-3. **Verify** — `openssl s_client` connects to each domain in `VERIFY_DOMAINS` and prints the subject, issuer, SANs, and days until expiry.
+run
+Issues/renews cert, installs it, then runs full status check
+
+verify
+Checks public TLS only using OpenSSL
+
+ssl-status
+Shows BOTH:
+
+Public edge TLS (Cloudflare):
+
+- subject
+- issuer (typically Google Trust Services)
+- expiration
+- SANs
+- days remaining
+
+cPanel origin SSL inventory:
+
+- installed hosts
+- stored certificates
+- issuer (Let’s Encrypt)
+- expiration
+- validation type
+- SAN coverage
 
 ---
 
-## Shell function (zshrc)
+## Example output
 
-See `.zshrc-snippet` for the function to add to your shell config.
+Public edge TLS:
+
+jseverino.com
+Status: VALID
+Issuer: Google Trust Services
+Days left: 69
+
+Origin SSL:
+
+jseverino.com
+Status: VALID
+Issuer: Let's Encrypt E7
+Days left: 85
+Domains: *.jseverino.com, *.jseverino.net, jseverino.com, jseverino.net
 
 ---
 
-## Renewal schedule
+## Renewal strategy
 
-Let's Encrypt certificates expire after 90 days. Renew at ~60 days (30 days before expiry) to stay comfortable. The `verify` command will show you the days remaining at any time.
+Let's Encrypt certs last 90 days.
+
+Renew at ~60 days.
+
+ssl-status shows both edge and origin timing so you can verify everything is aligned.
+
+---
+
+## Notes
+
+- Edge and origin certificates will NOT match — that is expected
+- Cloudflare always serves its own certificate to users
+- Your script manages the origin certificate used between Cloudflare and your server
+- If a domain fails in VERIFY_DOMAINS, it is not reachable over HTTPS or not configured
+
+---
+
+## Summary
+
+This script gives you:
+
+- Fully automated wildcard certificate issuance
+- Secure DNS validation through Cloudflare
+- Automated deployment to cPanel
+- Clear visibility into both edge and origin TLS layers
+
+This is not just renewal — it is full TLS lifecycle automation.
