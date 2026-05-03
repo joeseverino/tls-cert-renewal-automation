@@ -31,14 +31,14 @@ This script verifies both.
 
 ## Architecture
 
-Browser
-  ↓
-Cloudflare edge TLS certificate
-  ↓
-Cloudflare proxy
-  ↓
-cPanel origin TLS certificate
-  ↓
+Browser<br>
+↓<br>
+Cloudflare edge TLS certificate<br>
+↓<br>
+Cloudflare proxy<br>
+↓<br>
+cPanel origin TLS certificate<br>
+↓<br>
 Website
 
 ---
