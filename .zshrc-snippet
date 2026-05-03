@@ -1,0 +1,9 @@
+# TLS cert renewal — usage: tls [check | dry-run | verify | run]
+tls() {
+  local script="$HOME/Documents/Software Development/tls-cert-renewal-automation/renew.sh"
+  local cmd="${1:-run}"
+  case "$cmd" in
+    check|verify) "$script" "$cmd" ;;
+    *)            sudo "$script" "$cmd" ;;
+  esac
+}
