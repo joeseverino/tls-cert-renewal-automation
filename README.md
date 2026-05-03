@@ -28,6 +28,12 @@ This project validates both layers.
 
 ---
 
+## Example Output
+
+![SSL Status Output](assets/ssl-status.png)
+
+---
+
 ## Architecture
 
     Browser
