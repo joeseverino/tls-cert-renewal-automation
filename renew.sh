@@ -480,6 +480,24 @@ for cert in data:
 PY
 }
 
+# ── VPS deploy ───────────────────────────────────────────────────────────────
+
+vps_deploy_cert() {
+  [[ -n "${VPS_HOST:-}" ]] || { warn "VPS_HOST not set — skipping VPS deploy"; return 0; }
+
+  echo "==> Deploying cert to VPS ($VPS_HOST) ..."
+
+  scp "$CERT_LIVE/fullchain.pem" "$CERT_LIVE/privkey.pem" "$VPS_HOST:/tmp/"
+  ssh "$VPS_HOST" "
+    sudo mv /tmp/fullchain.pem /tmp/privkey.pem ${VPS_CERT_DIR}/
+    sudo chmod 644 ${VPS_CERT_DIR}/fullchain.pem
+    sudo chmod 600 ${VPS_CERT_DIR}/privkey.pem
+    sudo docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+  "
+
+  ok "cert deployed and Caddy reloaded"
+}
+
 # ── run ───────────────────────────────────────────────────────────────────────
 
 cmd_run() {
@@ -518,6 +536,9 @@ cmd_run() {
 
   echo ""
   echo "✓ Install complete."
+
+  echo ""
+  vps_deploy_cert
 
   echo ""
   echo "==> Verifying SSL status ..."

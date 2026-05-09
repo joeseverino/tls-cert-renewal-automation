@@ -27,3 +27,6 @@ __pycache__/
 /build/
 /dist/
 .claude
+
+# Local docs, screenshots, writeups
+_docs/
